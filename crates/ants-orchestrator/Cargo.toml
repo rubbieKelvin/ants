@@ -1,0 +1,10 @@
+[package]
+name = "ants-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Task queue, work-stealing, and fault-recovery logic for the ants orchestrator."
+
+[lib]

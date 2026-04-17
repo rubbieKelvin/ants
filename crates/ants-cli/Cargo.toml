@@ -1,0 +1,15 @@
+[package]
+name = "ants-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Command-line entrypoint for the ants distributed mesh scheduler."
+
+[[bin]]
+name = "ants"
+path = "src/main.rs"
+
+[dependencies]
+ants-core = { workspace = true }

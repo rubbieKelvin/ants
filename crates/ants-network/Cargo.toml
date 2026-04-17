@@ -1,0 +1,10 @@
+[package]
+name = "ants-network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "libp2p-based peer discovery and messaging for the ants mesh."
+
+[lib]

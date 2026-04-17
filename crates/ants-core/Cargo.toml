@@ -1,0 +1,10 @@
+[package]
+name = "ants-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Shared domain types for the ants distributed mesh scheduler (Job, Task, Heartbeat, NodeId)."
+
+[lib]

@@ -1,0 +1,10 @@
+[package]
+name = "ants-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "wasmtime-backed sandboxed task execution for ants worker nodes."
+
+[lib]

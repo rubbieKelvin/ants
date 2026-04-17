@@ -1,6 +1,24 @@
-[package]
-name = "ants"
+[workspace]
+resolver = "3"
+members = [
+    "crates/ants-core",
+    "crates/ants-network",
+    "crates/ants-worker",
+    "crates/ants-observability",
+    "crates/ants-orchestrator",
+    "crates/ants-cli",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rubbiekelvin/ants"
+authors = ["ants contributors"]
 
-[dependencies]
+[workspace.dependencies]
+ants-core = { path = "crates/ants-core" }
+ants-network = { path = "crates/ants-network" }
+ants-worker = { path = "crates/ants-worker" }
+ants-observability = { path = "crates/ants-observability" }
+ants-orchestrator = { path = "crates/ants-orchestrator" }
