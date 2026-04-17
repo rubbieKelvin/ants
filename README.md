@@ -58,6 +58,6 @@ prove the workspace wires up; subcommands land with the milestones.
 - [AGENTS.md](AGENTS.md) — conventions for contributors and AI agents working
   in this repository.
 
-## License
+## Licence
 
-Dual-licensed under MIT or Apache-2.0 at your option.
+Licensed under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html) only (SPDX `AGPL-3.0-only`). See [LICENCE.md](LICENCE.md) for the full text.
