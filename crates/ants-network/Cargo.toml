@@ -8,3 +8,12 @@ authors.workspace = true
 description = "libp2p-based peer discovery and messaging for the ants mesh."
 
 [lib]
+
+[dependencies]
+ants-core = { workspace = true }
+futures = { workspace = true }
+libp2p = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

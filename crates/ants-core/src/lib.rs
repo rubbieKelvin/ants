@@ -3,5 +3,7 @@
 //! Concrete types (`Job`, `Task`, `Heartbeat`, `NodeId`, …) are introduced
 //! alongside the milestones that first require them. See `PROJECT.md`.
 
-/// Crate placeholder so the workspace compiles before milestone work lands.
+pub mod mesh;
+
+/// Crate name constant kept for smoke tests and banner output.
 pub const CRATE_NAME: &str = "ants-core";

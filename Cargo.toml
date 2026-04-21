@@ -22,3 +22,29 @@ ants-network = { path = "crates/ants-network" }
 ants-worker = { path = "crates/ants-worker" }
 ants-observability = { path = "crates/ants-observability" }
 ants-orchestrator = { path = "crates/ants-orchestrator" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+libp2p = { version = "0.56", features = [
+    "tokio",
+    "tcp",
+    "noise",
+    "yamux",
+    "mdns",
+    "request-response",
+    "cbor",
+    "macros",
+] }
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "signal",
+    "time",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

@@ -8,3 +8,6 @@ authors.workspace = true
 description = "Shared domain types for the ants distributed mesh scheduler (Job, Task, Heartbeat, NodeId)."
 
 [lib]
+
+[dependencies]
+serde = { workspace = true }
