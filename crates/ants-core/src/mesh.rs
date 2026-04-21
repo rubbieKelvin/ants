@@ -1,9 +1,4 @@
 //! Wire-level message types exchanged by nodes in the ants mesh.
-//!
-//! Milestone 1 only needs a minimal round-trip: a ping/pong used to confirm
-//! that two discovered peers can actually talk. Later milestones will grow
-//! this module with `Job`, `Task`, `Heartbeat`, etc.
-
 use serde::{Deserialize, Serialize};
 
 /// libp2p `StreamProtocol` name for the ping/pong request-response endpoint.
