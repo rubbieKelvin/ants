@@ -10,7 +10,7 @@
 use ants_core::mesh::{PING_PROTOCOL, PingRequest, PingResponse};
 use libp2p::{
     StreamProtocol, mdns,
-    request_response::{self, ProtocolSupport},
+    request_response::{Config, ProtocolSupport, cbor},
     swarm::NetworkBehaviour,
 };
 
@@ -18,7 +18,7 @@ use libp2p::{
 #[derive(NetworkBehaviour)]
 pub struct AntsBehaviour {
     pub mdns: mdns::tokio::Behaviour,
-    pub ping: request_response::cbor::Behaviour<PingRequest, PingResponse>,
+    pub ping: cbor::Behaviour<PingRequest, PingResponse>,
 }
 
 impl AntsBehaviour {
@@ -26,14 +26,14 @@ impl AntsBehaviour {
     pub(crate) fn new(
         keypair: &libp2p::identity::Keypair,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mdns =
-            mdns::tokio::Behaviour::new(mdns::Config::default(), keypair.public().to_peer_id())?;
+        let mdns_config = mdns::Config::default();
+        let mdns = mdns::tokio::Behaviour::new(mdns_config, keypair.public().to_peer_id())?;
 
-        let ping = request_response::cbor::Behaviour::<PingRequest, PingResponse>::new(
+        let ping = cbor::Behaviour::<PingRequest, PingResponse>::new(
             [(StreamProtocol::new(PING_PROTOCOL), ProtocolSupport::Full)],
-            request_response::Config::default(),
+            Config::default(),
         );
 
-        Ok(Self { mdns, ping })
+        return Ok(Self { mdns, ping });
     }
 }

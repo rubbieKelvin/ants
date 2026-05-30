@@ -8,11 +8,6 @@ orchestrator for the job's lifetime, managing the task queue, tracking worker
 heartbeats, and recovering from failures. Idle workers steal pending work from
 busy peers to keep total job time down.
 
-## Status
-
-Early scaffold. Core types and transports are stubs; milestones drive the
-actual implementation.
-
 ## Build and run
 
 ```bash
