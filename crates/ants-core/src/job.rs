@@ -165,6 +165,17 @@ pub struct TaskResult {
     pub wall_time_ms: u64,
 }
 
+// ── Task assignment ──────────────────────────────────────────────────────────
+
+/// Metadata recorded when a task is assigned to a worker.
+#[derive(Debug, Clone)]
+pub struct AssignmentInfo {
+    /// The worker's peer-id bytes.
+    pub worker_id: Vec<u8>,
+    /// Unix timestamp (milliseconds) when the assignment was made.
+    pub assigned_at_ms: u64,
+}
+
 // ── Job status ───────────────────────────────────────────────────────────────
 
 /// Tracks the high-level lifecycle phase of a submitted job.
@@ -203,9 +214,9 @@ pub struct JobState {
     pub task_order: Vec<TaskId>,
     /// Unix timestamp (milliseconds) when the job was first submitted.
     pub created_at_ms: u64,
-    /// Which peer is currently assigned to each in-flight task.  Used for
-    /// recovery when a worker disappears.
-    pub assignments: HashMap<TaskId, Vec<u8>>,
+    /// Which peer is currently assigned to each in-flight task, plus when
+    /// the assignment happened (for steal-threshold checks).
+    pub assignments: HashMap<TaskId, AssignmentInfo>,
 }
 
 impl JobState {

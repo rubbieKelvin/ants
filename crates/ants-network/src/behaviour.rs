@@ -1,11 +1,14 @@
 //! Composed `NetworkBehaviour` for an ants node.
 //!
-//! MS1: mDNS for LAN peer discovery + cbor-encoded ping request/response.
-//! MS2: adds a job protocol (`/ants/job/1.0.0`) extending request/response
-//! with task assignment, result submission, job creation, and status queries.
+//! MS1: mDNS + ping.
+//! MS2: + job protocol.
+//! MS4: + heartbeat protocol.
 
 use ants_core::job::JOB_PROTOCOL;
-use ants_core::mesh::{PING_PROTOCOL, PingRequest, PingResponse};
+use ants_core::mesh::{
+    HEARTBEAT_PROTOCOL, HeartbeatRequest, HeartbeatResponse, PING_PROTOCOL, PingRequest,
+    PingResponse,
+};
 use libp2p::{
     StreamProtocol, mdns,
     request_response::{Config, ProtocolSupport, cbor},
@@ -14,13 +17,14 @@ use libp2p::{
 
 use crate::protocol::{TaskRequest, TaskResponse};
 
-/// Top-level behaviour combining mDNS discovery, request/response ping,
-/// and the job protocol.
+/// Top-level behaviour combining mDNS discovery, ping, job protocol, and
+/// heartbeat liveness.
 #[derive(NetworkBehaviour)]
 pub struct AntsBehaviour {
     pub mdns: mdns::tokio::Behaviour,
     pub ping: cbor::Behaviour<PingRequest, PingResponse>,
     pub job: cbor::Behaviour<TaskRequest, TaskResponse>,
+    pub heartbeat: cbor::Behaviour<HeartbeatRequest, HeartbeatResponse>,
 }
 
 impl AntsBehaviour {
@@ -41,6 +45,19 @@ impl AntsBehaviour {
             Config::default(),
         );
 
-        return Ok(Self { mdns, ping, job });
+        let heartbeat = cbor::Behaviour::<HeartbeatRequest, HeartbeatResponse>::new(
+            [(
+                StreamProtocol::new(HEARTBEAT_PROTOCOL),
+                ProtocolSupport::Full,
+            )],
+            Config::default(),
+        );
+
+        return Ok(Self {
+            mdns,
+            ping,
+            job,
+            heartbeat,
+        });
     }
 }

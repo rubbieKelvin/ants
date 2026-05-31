@@ -8,8 +8,10 @@ use ants_worker::WasmEngine;
 use libp2p::{Multiaddr, SwarmBuilder, noise, tcp, yamux};
 use thiserror::Error;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 use crate::behaviour::AntsBehaviour;
+use crate::event::NodeEvent;
 use crate::event_loop::{self, SharedState};
 
 /// User-facing configuration for [`run_node`].
@@ -58,8 +60,38 @@ pub enum NodeError {
     Io(#[from] std::io::Error),
 }
 
-/// Start a long-running ants node. Blocks until Ctrl-C or fatal error.
+/// Start a long-running ants node with an event sink.
+///
+/// The caller receives typed [`NodeEvent`] values over the returned
+/// unbounded sender.  For headless operation (e.g. the CLI) use
+/// [`run_node`] instead, which logs events to `tracing`.
+pub async fn run_node_with_events(
+    cfg: NodeConfig,
+    event_tx: mpsc::UnboundedSender<NodeEvent>,
+) -> Result<(), NodeError> {
+    let (swarm, orchestrator, worker) = build_node(cfg).await?;
+    let shared = SharedState::new_with_events(orchestrator, worker, event_tx);
+    return event_loop::drive(swarm, shared).await;
+}
+
+/// Start a long-running ants node.  Events are logged via `tracing`.
+/// Blocks until Ctrl-C or fatal error.
 pub async fn run_node(cfg: NodeConfig) -> Result<(), NodeError> {
+    let (swarm, orchestrator, worker) = build_node(cfg).await?;
+    let shared = SharedState::new(orchestrator, worker);
+    return event_loop::drive(swarm, shared).await;
+}
+
+async fn build_node(
+    cfg: NodeConfig,
+) -> Result<
+    (
+        libp2p::Swarm<AntsBehaviour>,
+        Arc<Mutex<Orchestrator>>,
+        Arc<WasmEngine>,
+    ),
+    NodeError,
+> {
     let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
@@ -97,7 +129,5 @@ pub async fn run_node(cfg: NodeConfig) -> Result<(), NodeError> {
         )
     });
 
-    let shared = SharedState::new(orchestrator, worker);
-
-    event_loop::drive(swarm, shared).await
+    return Ok((swarm, orchestrator, worker));
 }
