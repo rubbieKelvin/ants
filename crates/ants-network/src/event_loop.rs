@@ -1,44 +1,60 @@
-//! Swarm event loop for Milestone 1.
+//! Swarm event loop for ants.
 //!
-//! Flow:
-//!
-//! 1. mDNS discovers a peer and reports its dialable address.
-//! 2. We teach the swarm the address, then actively dial the peer.
-//! 3. Once the connection is established, we send a [`PingRequest`].
-//! 4. The remote side replies with a [`PingResponse`]; we log the RTT.
-//!
-//! Ctrl-C exits the loop cleanly.
+//! Handles mDNS discovery, ping/pong, and the job wire protocol.
+//! The orchestrator and worker engine are injected via shared state.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ants_core::mesh::{PingRequest, PingResponse};
+use ants_orchestrator::Orchestrator;
+use ants_worker::WasmEngine;
 use futures::StreamExt;
 use libp2p::{
     PeerId, Swarm,
     request_response::{self, Message, OutboundRequestId},
     swarm::SwarmEvent,
 };
+use tokio::sync::{Mutex, mpsc};
 
 use crate::behaviour::{AntsBehaviour, AntsBehaviourEvent};
 use crate::node::NodeError;
+use crate::protocol::{TaskRequest, TaskResponse};
 
-/// Per-node mutable state for the event loop. Bundled together so the match
-/// arms below stay terse.
+/// Shared state for the event loop.
+pub(crate) struct SharedState {
+    pub orchestrator: Arc<Mutex<Orchestrator>>,
+    pub worker: Arc<WasmEngine>,
+    /// Queue of outbound job-protocol messages: `(peer, request)`.
+    pub outbound_tx: mpsc::UnboundedSender<(PeerId, TaskRequest)>,
+    pub outbound_rx: mpsc::UnboundedReceiver<(PeerId, TaskRequest)>,
+}
+
+impl SharedState {
+    pub fn new(orch: Arc<Mutex<Orchestrator>>, worker: Arc<WasmEngine>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        return Self {
+            orchestrator: orch,
+            worker,
+            outbound_tx: tx,
+            outbound_rx: rx,
+        };
+    }
+}
+
+/// Per-node p2p state.
 #[derive(Default)]
 struct NodeState {
-    /// Peers for which we have already fired a ping (and don't want to spam
-    /// again when mDNS re-announces them).
     pinged: HashSet<PeerId>,
-    /// Peers discovered via mDNS that we owe a ping once their connection
-    /// becomes established.
     pending_ping: HashSet<PeerId>,
-    /// Outstanding outbound pings keyed by `OutboundRequestId`, used to
-    /// compute RTT when the response comes back.
     outbound: HashMap<OutboundRequestId, Instant>,
 }
 
-pub(crate) async fn drive(mut swarm: Swarm<AntsBehaviour>) -> Result<(), NodeError> {
+pub(crate) async fn drive(
+    mut swarm: Swarm<AntsBehaviour>,
+    mut shared: SharedState,
+) -> Result<(), NodeError> {
     let mut state = NodeState::default();
 
     loop {
@@ -49,7 +65,13 @@ pub(crate) async fn drive(mut swarm: Swarm<AntsBehaviour>) -> Result<(), NodeErr
                 return Ok(());
             }
             event = swarm.select_next_some() => {
-                handle_event(&mut swarm, event, &mut state);
+                handle_event(&mut swarm, event, &mut state, &shared);
+            }
+            maybe_out = shared.outbound_rx.recv() => {
+                if let Some((peer, request)) = maybe_out {
+                    let req_id = swarm.behaviour_mut().job.send_request(&peer, request);
+                    tracing::debug!(peer = %peer, ?req_id, "outbound job request dispatched");
+                }
             }
         }
     }
@@ -59,6 +81,7 @@ fn handle_event(
     swarm: &mut Swarm<AntsBehaviour>,
     event: SwarmEvent<AntsBehaviourEvent>,
     state: &mut NodeState,
+    shared: &SharedState,
 ) {
     match event {
         SwarmEvent::NewListenAddr { address, .. } => {
@@ -72,6 +95,12 @@ fn handle_event(
         }
         SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
             tracing::debug!(peer = %peer_id, ?cause, "connection closed");
+            let worker_id = peer_id.to_bytes();
+            let orch = shared.orchestrator.clone();
+            tokio::spawn(async move {
+                let mut orch = orch.lock().await;
+                orch.recover_tasks(&worker_id);
+            });
         }
         SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
             tracing::warn!(peer = ?peer_id, %error, "outgoing connection failed");
@@ -82,9 +111,14 @@ fn handle_event(
         SwarmEvent::Behaviour(AntsBehaviourEvent::Ping(event)) => {
             handle_ping(swarm, event, &mut state.outbound);
         }
+        SwarmEvent::Behaviour(AntsBehaviourEvent::Job(event)) => {
+            handle_job(swarm, event, shared);
+        }
         _ => {}
     }
 }
+
+// ── mDNS ─────────────────────────────────────────────────────────────────────
 
 fn handle_mdns(
     swarm: &mut Swarm<AntsBehaviour>,
@@ -98,25 +132,14 @@ fn handle_mdns(
             let local = *swarm.local_peer_id();
             for (peer_id, addr) in peers {
                 tracing::info!(peer = %peer_id, %addr, "discovered peer");
-
-                // Teach the swarm how to reach this peer so request-response
-                // (and any future behaviour) can find an address in the
-                // book when it needs to dial.
                 swarm.add_peer_address(peer_id, addr.clone());
-
                 if state.pinged.contains(&peer_id) {
                     continue;
                 }
-
-                // Both sides of an mDNS discovery see each other at roughly
-                // the same instant. If both actively dial, noise handshakes
-                // race and one side fails. We break the tie with the peer
-                // id: only the lexicographically smaller peer dials; the
-                // other side will answer on the inbound connection.
                 if local < peer_id {
                     state.pending_ping.insert(peer_id);
                     if let Err(err) = swarm.dial(addr) {
-                        tracing::warn!(peer = %peer_id, %err, "failed to dial discovered peer");
+                        tracing::warn!(peer = %peer_id, %err, "failed to dial");
                         state.pending_ping.remove(&peer_id);
                     }
                 } else {
@@ -132,6 +155,8 @@ fn handle_mdns(
     }
 }
 
+// ── Ping ─────────────────────────────────────────────────────────────────────
+
 fn handle_ping(
     swarm: &mut Swarm<AntsBehaviour>,
     event: request_response::Event<PingRequest, PingResponse>,
@@ -142,40 +167,20 @@ fn handle_ping(
             Message::Request {
                 request, channel, ..
             } => {
-                tracing::info!(peer = %peer, nonce = request.nonce, "ping received");
                 let response = PingResponse {
                     nonce: request.nonce,
                     echoed_unix_ms: now_unix_ms(),
                 };
-                if swarm
-                    .behaviour_mut()
-                    .ping
-                    .send_response(channel, response)
-                    .is_err()
-                {
-                    tracing::warn!(peer = %peer, "failed to send pong; receiver dropped");
-                }
+                let _ = swarm.behaviour_mut().ping.send_response(channel, response);
             }
             Message::Response {
                 response,
                 request_id,
             } => {
-                let rtt_ms = outbound
+                let rtt = outbound
                     .remove(&request_id)
                     .map(|sent| sent.elapsed().as_millis());
-                match rtt_ms {
-                    Some(rtt) => tracing::info!(
-                        peer = %peer,
-                        nonce = response.nonce,
-                        rtt_ms = rtt as u64,
-                        "pong received",
-                    ),
-                    None => tracing::info!(
-                        peer = %peer,
-                        nonce = response.nonce,
-                        "pong received (no tracked send time)",
-                    ),
-                }
+                tracing::info!(peer = %peer, nonce = response.nonce, rtt_ms = rtt.unwrap_or(0) as u64, "pong");
             }
         },
         request_response::Event::OutboundFailure {
@@ -190,9 +195,7 @@ fn handle_ping(
         request_response::Event::InboundFailure { peer, error, .. } => {
             tracing::warn!(peer = %peer, %error, "inbound ping failed");
         }
-        request_response::Event::ResponseSent { peer, .. } => {
-            tracing::debug!(peer = %peer, "pong delivered");
-        }
+        request_response::Event::ResponseSent { .. } => {}
     }
 }
 
@@ -207,8 +210,139 @@ fn send_ping(
     };
     let request_id = swarm.behaviour_mut().ping.send_request(&peer, request);
     outbound.insert(request_id, Instant::now());
-    tracing::debug!(peer = %peer, ?request_id, "ping dispatched");
 }
+
+// ── Job protocol ─────────────────────────────────────────────────────────────
+
+fn handle_job(
+    swarm: &mut Swarm<AntsBehaviour>,
+    event: request_response::Event<TaskRequest, TaskResponse>,
+    shared: &SharedState,
+) {
+    match event {
+        request_response::Event::Message { peer, message, .. } => match message {
+            Message::Request {
+                request, channel, ..
+            } => {
+                handle_job_request(swarm, peer, request, channel, shared);
+            }
+            Message::Response { response, .. } => {
+                handle_job_response(shared, peer, response);
+            }
+        },
+        request_response::Event::OutboundFailure { peer, error, .. } => {
+            tracing::warn!(peer = %peer, %error, "outbound job request failed");
+        }
+        request_response::Event::InboundFailure { peer, error, .. } => {
+            tracing::warn!(peer = %peer, %error, "inbound job request failed");
+        }
+        request_response::Event::ResponseSent { .. } => {}
+    }
+}
+
+fn handle_job_request(
+    swarm: &mut Swarm<AntsBehaviour>,
+    peer: PeerId,
+    request: TaskRequest,
+    channel: request_response::ResponseChannel<TaskResponse>,
+    shared: &SharedState,
+) {
+    let peer_bytes = peer.to_bytes();
+    let orch = shared.orchestrator.clone();
+
+    match request {
+        TaskRequest::AssignTasks { count } => {
+            let mut orch = orch.blocking_lock();
+            let tasks = orch.assign_tasks(&peer_bytes, count as usize);
+            let _ = swarm
+                .behaviour_mut()
+                .job
+                .send_response(channel, TaskResponse::Tasks(tasks));
+        }
+        TaskRequest::SubmitTaskResult { task_id, result } => {
+            let mut orch = orch.blocking_lock();
+            match orch.record_result(&task_id, result) {
+                Ok(()) => {
+                    let _ = swarm
+                        .behaviour_mut()
+                        .job
+                        .send_response(channel, TaskResponse::Accepted);
+                }
+                Err(e) => {
+                    let _ = swarm
+                        .behaviour_mut()
+                        .job
+                        .send_response(channel, TaskResponse::Error(e.to_string()));
+                }
+            }
+        }
+        TaskRequest::SubmitJob { spec } => {
+            let mut orch = orch.blocking_lock();
+            match orch.submit_job(spec) {
+                Ok(job_id) => {
+                    let _ = swarm
+                        .behaviour_mut()
+                        .job
+                        .send_response(channel, TaskResponse::JobCreated(job_id));
+                }
+                Err(e) => {
+                    let _ = swarm
+                        .behaviour_mut()
+                        .job
+                        .send_response(channel, TaskResponse::Error(e.to_string()));
+                }
+            }
+        }
+        TaskRequest::QueryJobStatus { job_id } => {
+            let orch = orch.blocking_lock();
+            let status = orch.get_job_status(&job_id).cloned();
+            let _ = swarm
+                .behaviour_mut()
+                .job
+                .send_response(channel, TaskResponse::JobStatus(status));
+        }
+    }
+}
+
+fn handle_job_response(shared: &SharedState, peer: PeerId, response: TaskResponse) {
+    match response {
+        TaskResponse::Tasks(tasks) => {
+            tracing::info!(peer = %peer, count = tasks.len(), "received task assignments");
+            let worker = shared.worker.clone();
+            let tx = shared.outbound_tx.clone();
+
+            for task in tasks {
+                let worker = worker.clone();
+                let tx = tx.clone();
+
+                tokio::spawn(async move {
+                    let task_id = task.task_id;
+                    let result = worker
+                        .execute_task(task_id, &task.wasm_bytes, &task.input_slice)
+                        .await;
+                    tracing::info!(%task_id, exit_code = result.exit_code, "task completed");
+
+                    let req = TaskRequest::SubmitTaskResult { task_id, result };
+                    let _ = tx.send((peer, req));
+                });
+            }
+        }
+        TaskResponse::Accepted => {
+            tracing::debug!(peer = %peer, "result accepted");
+        }
+        TaskResponse::JobCreated(job_id) => {
+            tracing::info!(peer = %peer, %job_id, "job created");
+        }
+        TaskResponse::JobStatus(status) => {
+            tracing::info!(peer = %peer, ?status, "job status");
+        }
+        TaskResponse::Error(msg) => {
+            tracing::warn!(peer = %peer, %msg, "job protocol error");
+        }
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn now_unix_ms() -> u64 {
     SystemTime::now()

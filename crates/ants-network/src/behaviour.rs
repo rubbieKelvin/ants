@@ -1,12 +1,10 @@
 //! Composed `NetworkBehaviour` for an ants node.
 //!
-//! For Milestone 1 the behaviour is deliberately narrow: mDNS for LAN peer
-//! discovery plus a cbor-encoded request/response endpoint that carries
-//! `PingRequest` / `PingResponse`. The cbor codec is used because it is the
-//! zero-boilerplate path in libp2p 0.56. `PROJECT.md` mentions `bincode` as
-//! the long-term wire format for real job/task payloads; that swap happens
-//! in Milestone 3 when those types are introduced.
+//! MS1: mDNS for LAN peer discovery + cbor-encoded ping request/response.
+//! MS2: adds a job protocol (`/ants/job/1.0.0`) extending request/response
+//! with task assignment, result submission, job creation, and status queries.
 
+use ants_core::job::JOB_PROTOCOL;
 use ants_core::mesh::{PING_PROTOCOL, PingRequest, PingResponse};
 use libp2p::{
     StreamProtocol, mdns,
@@ -14,11 +12,15 @@ use libp2p::{
     swarm::NetworkBehaviour,
 };
 
-/// Top-level behaviour combining mDNS discovery with request/response ping.
+use crate::protocol::{TaskRequest, TaskResponse};
+
+/// Top-level behaviour combining mDNS discovery, request/response ping,
+/// and the job protocol.
 #[derive(NetworkBehaviour)]
 pub struct AntsBehaviour {
     pub mdns: mdns::tokio::Behaviour,
     pub ping: cbor::Behaviour<PingRequest, PingResponse>,
+    pub job: cbor::Behaviour<TaskRequest, TaskResponse>,
 }
 
 impl AntsBehaviour {
@@ -34,6 +36,11 @@ impl AntsBehaviour {
             Config::default(),
         );
 
-        return Ok(Self { mdns, ping });
+        let job = cbor::Behaviour::<TaskRequest, TaskResponse>::new(
+            [(StreamProtocol::new(JOB_PROTOCOL), ProtocolSupport::Full)],
+            Config::default(),
+        );
+
+        return Ok(Self { mdns, ping, job });
     }
 }

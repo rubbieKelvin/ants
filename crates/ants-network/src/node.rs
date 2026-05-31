@@ -1,39 +1,44 @@
 //! Public entry point for running an ants node.
 
 use std::str::FromStr;
+use std::sync::Arc;
 
+use ants_orchestrator::Orchestrator;
+use ants_worker::WasmEngine;
 use libp2p::{Multiaddr, SwarmBuilder, noise, tcp, yamux};
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::behaviour::AntsBehaviour;
-use crate::event_loop;
+use crate::event_loop::{self, SharedState};
 
-/// User-facing configuration for [`run_node`]. Extended cautiously; defaults
-/// stay sane so the CLI can call `run_node(NodeConfig::default())` and get
-/// LAN-ready behaviour.
-#[derive(Debug, Clone)]
+/// User-facing configuration for [`run_node`].
+#[derive(Clone)]
 pub struct NodeConfig {
-    /// Addresses the swarm should listen on. An empty vector falls back to
-    /// [`NodeConfig::default_listen_addrs`].
+    /// Addresses the swarm should listen on.
     pub listen_on: Vec<Multiaddr>,
+    /// An optional orchestrator to manage jobs on this node.
+    pub orchestrator: Option<Arc<Mutex<Orchestrator>>>,
+    /// An optional worker engine to execute tasks on this node.
+    pub worker: Option<Arc<WasmEngine>>,
 }
 
 impl NodeConfig {
-    /// Default listen set: one IPv4 TCP socket on an OS-assigned port.
     pub fn default_listen_addrs() -> Vec<Multiaddr> {
-        vec![Multiaddr::from_str("/ip4/0.0.0.0/tcp/0").expect("valid multiaddr literal")]
+        return vec![Multiaddr::from_str("/ip4/0.0.0.0/tcp/0").expect("valid multiaddr literal")];
     }
 }
 
 impl Default for NodeConfig {
     fn default() -> Self {
-        Self {
+        return Self {
             listen_on: Self::default_listen_addrs(),
-        }
+            orchestrator: None,
+            worker: None,
+        };
     }
 }
 
-/// Errors surfaced from [`run_node`].
 #[derive(Debug, Error)]
 pub enum NodeError {
     #[error("failed to configure transport: {0}")]
@@ -53,8 +58,7 @@ pub enum NodeError {
     Io(#[from] std::io::Error),
 }
 
-/// Start a long-running ants node. Blocks until an unrecoverable error or
-/// the user presses Ctrl-C.
+/// Start a long-running ants node. Blocks until Ctrl-C or fatal error.
 pub async fn run_node(cfg: NodeConfig) -> Result<(), NodeError> {
     let mut swarm = SwarmBuilder::with_new_identity()
         .with_tokio()
@@ -83,5 +87,17 @@ pub async fn run_node(cfg: NodeConfig) -> Result<(), NodeError> {
             .map_err(|source| NodeError::Listen { addr, source })?;
     }
 
-    event_loop::drive(swarm).await
+    let orchestrator = cfg
+        .orchestrator
+        .unwrap_or_else(|| Arc::new(Mutex::new(Orchestrator::new())));
+    let worker = cfg.worker.unwrap_or_else(|| {
+        Arc::new(
+            WasmEngine::new(ants_worker::SandboxConfig::default())
+                .expect("default wasm engine construction"),
+        )
+    });
+
+    let shared = SharedState::new(orchestrator, worker);
+
+    event_loop::drive(swarm, shared).await
 }

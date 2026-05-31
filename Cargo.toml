@@ -16,6 +16,9 @@ license = "AGPL-3.0-only"
 repository = "https://github.com/rubbiekelvin/ants"
 authors = ["rubbiekelvin <dev.rubbie+ants@gmail.com>"]
 
+[workspace.lints.clippy]
+needless_return = "allow"
+
 [workspace.dependencies]
 ants-core = { path = "crates/ants-core" }
 ants-network = { path = "crates/ants-network" }
@@ -38,6 +41,7 @@ libp2p = { version = "0.56", features = [
 ] }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = [
     "rt-multi-thread",
@@ -48,3 +52,7 @@ tokio = { version = "1", features = [
 ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+wasi-common = "18"
+wasmtime = { version = "18", default-features = false, features = ["cranelift", "pooling-allocator"] }
+wat = "1"

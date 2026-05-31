@@ -11,3 +11,5 @@ description = "Shared domain types for the ants distributed mesh scheduler (Job,
 
 [dependencies]
 serde = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }

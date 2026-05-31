@@ -8,3 +8,13 @@ authors.workspace = true
 description = "wasmtime-backed sandboxed task execution for ants worker nodes."
 
 [lib]
+
+[dependencies]
+ants-core = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+wasi-common = { workspace = true }
+wasmtime = { workspace = true }
+
+[dev-dependencies]
+wat = { workspace = true }

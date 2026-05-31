@@ -8,3 +8,7 @@ authors.workspace = true
 description = "Task queue, work-stealing, and fault-recovery logic for the ants orchestrator."
 
 [lib]
+
+[dependencies]
+ants-core = { workspace = true }
+tracing = { workspace = true }

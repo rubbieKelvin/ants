@@ -11,9 +11,12 @@ description = "libp2p-based peer discovery and messaging for the ants mesh."
 
 [dependencies]
 ants-core = { workspace = true }
+ants-orchestrator = { workspace = true }
+ants-worker = { workspace = true }
 futures = { workspace = true }
 libp2p = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
